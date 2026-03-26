@@ -133,7 +133,7 @@ static void handle_client_line(int slot, char *line) {
     switch (g_state.phase) {
     case PHASE_LOBBY:
         /* TODO: parse NAME <username>, enforce uniqueness, broadcast WAITING n/4, start at 4 */
-        send_error(slot, "Not implemented");
+        send_error(slot, ERR_NOT_IMPLEMENTED);
         break;
     case PHASE_ROLE_ASSIGN:
         /* TODO */
@@ -156,7 +156,7 @@ static void handle_client_line(int slot, char *line) {
     case PHASE_GAME_OVER:
         break;
     default:
-        send_error(slot, "Invalid command");
+        send_error(slot, ERR_INVALID_COMMAND);
         break;
     }
 }
@@ -183,7 +183,7 @@ static void try_read_client(int slot) {
     for (ssize_t i = 0; i < r; i++) {
         if (b->len >= RECV_BUF_SIZE - 1) {
             b->len = 0;
-            send_error(slot, "Line too long");
+            send_error(slot, ERR_LINE_TOO_LONG);
             continue;
         }
         b->data[b->len++] = tmp[i];

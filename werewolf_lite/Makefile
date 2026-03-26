@@ -1,6 +1,7 @@
-# Werewolf Lite — build with gcc on Linux / macOS / WSL
+# Werewolf Lite — CSC209 A3: expose PORT (default 4242) for socket projects.
+PORT ?= 4242
 CC = gcc
-CFLAGS = -Wall -Wextra -g -std=c11 -D_POSIX_C_SOURCE=200809L
+CFLAGS = -Wall -Wextra -g -std=c11 -D_POSIX_C_SOURCE=200809L -DDEFAULT_PORT=$(PORT)
 
 .PHONY: all clean
 
