@@ -1,0 +1,52 @@
+/*
+ * Werewolf Lite — line-based text protocol.
+ * Messages are newline-terminated (\n).
+ */
+#ifndef PROTOCOL_H
+#define PROTOCOL_H
+
+#define DEFAULT_PORT 5555
+
+#define MAX_PLAYERS 4
+#define MAX_NAME_LEN 64
+#define MAX_STATEMENT_LEN 100
+#define MAX_LINE_LEN 512
+
+/* Server -> client */
+#define MSG_WELCOME "WELCOME"
+#define MSG_WAITING "WAITING"
+#define MSG_GAME_START "GAME_START"
+#define MSG_ROLE "ROLE"
+#define MSG_NIGHT_START "NIGHT_START"
+#define MSG_NIGHT_ACTION "NIGHT_ACTION Choose a player to eliminate"
+#define MSG_NIGHT_WAIT "NIGHT_WAIT Waiting for the werewolf"
+#define MSG_DAY_START "DAY_START"
+#define MSG_PLAYER_ELIMINATED "PLAYER_ELIMINATED"
+#define MSG_ALIVE_PLAYERS "ALIVE_PLAYERS"
+#define MSG_YOUR_STATEMENT "YOUR_STATEMENT"
+#define MSG_WAIT_STATEMENT "WAIT_STATEMENT"
+#define MSG_STATEMENT "STATEMENT"
+#define MSG_STATEMENT_PHASE_END "STATEMENT_PHASE_END"
+#define MSG_VOTE_PROMPT "VOTE_PROMPT"
+#define MSG_VOTE_RESULT "VOTE_RESULT"
+#define MSG_VOTE_TIE "VOTE_TIE"
+#define MSG_NO_PLAYER_ELIMINATED "NO_PLAYER_ELIMINATED"
+#define MSG_GAME_OVER "GAME_OVER"
+#define MSG_ERROR "ERROR"
+#define MSG_PLAYER_DISCONNECTED "PLAYER_DISCONNECTED"
+#define MSG_GAME_ABORTED "GAME_ABORTED"
+
+/* Client -> server */
+#define CMD_NAME "NAME"
+#define CMD_KILL "KILL"
+#define CMD_SAY "SAY"
+#define CMD_VOTE "VOTE"
+#define CMD_QUIT "QUIT"
+
+#define ROLE_STR_WEREWOLF "WEREWOLF"
+#define ROLE_STR_VILLAGER "VILLAGER"
+
+#define WIN_STR_VILLAGERS "VILLAGERS_WIN"
+#define WIN_STR_WEREWOLF "WEREWOLF_WIN"
+
+#endif /* PROTOCOL_H */
