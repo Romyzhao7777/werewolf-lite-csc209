@@ -1,7 +1,4 @@
-/*
- * Werewolf Lite — line-based text protocol.
- * Messages are newline-terminated (\n).
- */
+
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
