@@ -41,33 +41,53 @@ typedef struct {
     int votes_received;
 } GameState;
 
+/* Reset all fields to lobby defaults */
 void game_init(GameState *g);
 
-/* TODO: assign 1 werewolf and 3 villagers randomly */
+/*
+ * Pick one random werewolf among registered players; others become villagers; all set alive.
+ */
 void game_assign_roles(GameState *g);
 
-/* TODO: count alive players with valid names */
+/*
+ * Number of players with slot_used && has_name && alive.
+ */
 int game_alive_count(const GameState *g);
 
-/* TODO: write space-separated alive names into buf */
+/*
+ * Write space-separated alive player names into buf (for ALIVE_PLAYERS). Returns bytes written, or -1.
+ */
 int game_format_alive_players(const GameState *g, char *buf, size_t buflen);
 
-/* TODO: return player index or -1 */
+/*
+ * Return slot index for exact name match, or -1.
+ */
 int game_find_player_by_name(const GameState *g, const char *name);
 
-/* TODO: validate night kill target */
+/*
+ * True if caller is the wolf slot and target is another alive player by name.
+ */
 bool game_valid_night_target(const GameState *g, int werewolf_slot, const char *target_name);
 
-/* TODO: validate vote target */
+/*
+ * True if voter may cast this vote (alive, not yet voted) and target is alive.
+ */
 bool game_valid_vote_target(const GameState *g, int voter_slot, const char *target_name);
 
-/* TODO: tally votes; *elim_slot = -1 on tie or error */
+/*
+ * Tally has_voted + vote_target; *elim_slot = sole top vote-getter, or -1 on tie / no votes.
+ */
 void game_tally_votes(GameState *g, int *elim_slot);
 
+/* True if the werewolf player is eliminated */
 bool game_villagers_win(const GameState *g);
+
+/* True if alive wolves >= alive villagers (and at least one wolf alive) */
 bool game_werewolf_win(const GameState *g);
 
-/* TODO: reset per-round flags (night victim index, votes, etc.) */
+/*
+ * Clear night victim index, vote/speech flags, statement_turn, votes_received.
+ */
 void game_reset_round_flags(GameState *g);
 
 #endif /* GAME_H */
