@@ -204,6 +204,27 @@ int all_alive_players_voted(GameState *game) {
     return 1;
 }
 
+void reset_to_lobby(Client clients[], GameState *game) {
+
+    // 重置游戏状态
+    game_init(game);
+
+    // 重置所有 client
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+
+        if (!clients[i].active)
+            continue;
+
+        clients[i].has_name = 0;
+        clients[i].name[0] = '\0';
+
+        char msg[MAX_LINE_LEN];
+        snprintf(msg, sizeof(msg), "%s\n", MSG_WELCOME);
+
+        write(clients[i].fd, msg, strlen(msg));
+    }
+}
+
 int main() {
     //初始化随机数生成器
     srand((unsigned int)getpid());
@@ -356,11 +377,21 @@ int main() {
             }
         }
 
-        if (disconnected_idx != -1 && game.phase != PHASE_LOBBY) {
+        if (disconnected_idx != -1 && game.phase == PHASE_LOBBY) {
+            int named_count = count_named_clients(clients);
+
+            char waiting_msg[MAX_LINE_LEN];
+            snprintf(waiting_msg, sizeof(waiting_msg), "%s %d/%d players\n",
+                    MSG_WAITING, named_count, MAX_PLAYERS);
+            broadcast(clients, waiting_msg);
+        }
+        else if (disconnected_idx != -1 &&
+                game.phase != PHASE_LOBBY ) {
             char msg[MAX_LINE_LEN];
 
             if (disconnected_name[0] != '\0') {
-                snprintf(msg, sizeof(msg), "%s %s\n", MSG_PLAYER_DISCONNECTED, disconnected_name);
+                snprintf(msg, sizeof(msg), "%s %s\n",
+                        MSG_PLAYER_DISCONNECTED, disconnected_name);
                 broadcast(clients, msg);
             }
 
@@ -379,6 +410,7 @@ int main() {
                 }
             }
         }
+}
     } else {
         buffer[n] = '\0';
         buffer[strcspn(buffer, "\r\n")] = '\0';
@@ -600,14 +632,16 @@ int main() {
                             snprintf(win_msg, sizeof(win_msg), "%s %s\n",
                                     MSG_GAME_OVER, WIN_STR_VILLAGERS);
                             broadcast(clients, win_msg);
-                            game.phase = PHASE_GAME_OVER;
+                            // 自动回到 lobby
+                            reset_to_lobby(clients, &game);
                         }
                         else if (game_werewolf_win(&game)) {
                             char win_msg[MAX_LINE_LEN];
                             snprintf(win_msg, sizeof(win_msg), "%s %s\n",
                                     MSG_GAME_OVER, WIN_STR_WEREWOLF);
                             broadcast(clients, win_msg);
-                            game.phase = PHASE_GAME_OVER;
+                            // 自动回到 lobby
+                            reset_to_lobby(clients, &game);
                         }
                         else {
                             // 你现在的简化版理论上不会走到这里
@@ -615,7 +649,8 @@ int main() {
                             char msg[MAX_LINE_LEN];
                             snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_NOT_IMPLEMENTED);
                             broadcast(clients, msg);
-                            game.phase = PHASE_GAME_OVER;
+                            // 自动回到 lobby
+                            reset_to_lobby(clients, &game);
                         }
                     }
                 }
