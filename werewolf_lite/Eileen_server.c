@@ -16,6 +16,7 @@ typedef struct {
     int active;
     int has_name;
     char name[MAX_NAME_LEN];
+    int role;   // 0 = villager, 1 = werewolf
 } Client;
 
 
@@ -57,8 +58,40 @@ void broadcast(Client clients[], const char *msg) {
     }
 }
 
+void assign_roles(Client clients[]) {
+    int werewolf_index = rand() % MAX_PLAYERS;
+
+    int named_seen = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i].active && clients[i].has_name) {
+            if (named_seen == werewolf_index) {
+                clients[i].role = 1; // werewolf
+            } else {
+                clients[i].role = 0; // villager
+            }
+            named_seen++;
+        }
+    }
+}
+
+void send_roles(Client clients[]) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i].active && clients[i].has_name) {
+            char msg[MAX_LINE_LEN];
+            if (clients[i].role == 1) {
+                snprintf(msg, sizeof(msg), "%s %s\n", MSG_ROLE, ROLE_STR_WEREWOLF);
+            } else {
+                snprintf(msg, sizeof(msg), "%s %s\n", MSG_ROLE, ROLE_STR_VILLAGER);
+            }
+            write(clients[i].fd, msg, strlen(msg));
+        }
+    }
+}
 
 int main() {
+    //初始化随机数生成器
+    srand((unsigned int)getpid());
+
     //定义client结构体数组，存储客户端信息
     Client clients[MAX_CLIENTS];
 
@@ -106,6 +139,7 @@ int main() {
         clients[i].active = 0;
         clients[i].has_name = 0;
         clients[i].name[0] = '\0';
+        clients[i].role = 0;
     }
 
 
@@ -181,6 +215,7 @@ int main() {
                 clients[j].fd = -1;
                 clients[j].has_name = 0;
                 clients[j].name[0] = '\0';
+                clients[j].role = 0;
                 break;
             }
         }
@@ -232,10 +267,20 @@ int main() {
             //计算当前已注册玩家数量，并广播等待消息
             int named_count = count_named_clients(clients);
 
-            char waiting_msg[MAX_LINE_LEN];
-            snprintf(waiting_msg, sizeof(waiting_msg), "%s %d/%d players\n",
+            //如果已注册玩家数量达到MAX_PLAYERS，广播游戏开始消息，分配角色并发送角色信息
+            if (named_count == MAX_PLAYERS) {
+                broadcast(clients, MSG_GAME_START "\n");
+
+                assign_roles(clients);
+                send_roles(clients);
+            }
+
+            else{
+                char waiting_msg[MAX_LINE_LEN];
+                snprintf(waiting_msg, sizeof(waiting_msg), "%s %d/%d players\n",
                      MSG_WAITING, named_count, MAX_PLAYERS);
-            broadcast(clients, waiting_msg);
+                broadcast(clients, waiting_msg);
+            }
         } 
         //如果用户已经注册名字，但重复注册
         else {
