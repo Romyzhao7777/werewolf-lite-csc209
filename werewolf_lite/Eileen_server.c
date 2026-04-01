@@ -123,6 +123,51 @@ void start_day_announce_phase(Client clients[], GameState *game) {
     }
 }
 
+int find_next_speaker(GameState *game) {
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (game->players[i].slot_used &&
+            game->players[i].has_name &&
+            game->players[i].alive &&
+            !game->players[i].has_spoken) {
+            return i;
+        }
+    }
+    return -1;
+}
+//注意考虑书否允许死者听发言
+void prompt_statement_turn(Client clients[], GameState *game, int speaker_idx) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (!clients[i].active || !clients[i].has_name) {
+            continue;
+        }
+
+        char msg[MAX_LINE_LEN];
+
+        if (i == speaker_idx) {
+            snprintf(msg, sizeof(msg), "%s\n", MSG_YOUR_STATEMENT);
+        } else {
+            snprintf(msg, sizeof(msg), "%s %s is speaking\n",
+                     MSG_WAIT_STATEMENT, game->players[speaker_idx].name);
+        }
+
+        write(clients[i].fd, msg, strlen(msg));
+    }
+}
+
+void start_statement_phase(Client clients[], GameState *game) {
+    game->phase = PHASE_STATEMENT;
+
+    int speaker_idx = find_next_speaker(game);
+    game->statement_turn = speaker_idx;
+
+    if (speaker_idx == -1) {
+        broadcast(clients, MSG_STATEMENT_PHASE_END "\n");
+        return;
+    }
+
+    prompt_statement_turn(clients, game, speaker_idx);
+}
+
 int main() {
     //初始化随机数生成器
     srand((unsigned int)getpid());
@@ -412,7 +457,59 @@ int main() {
                 game.players[victim_idx].alive = false;
                 game.phase = PHASE_DAY_ANNOUNCE;
                 start_day_announce_phase(clients, &game);
-            } else {
+
+                // 先把“公布死亡”做完，再清 round flags
+                game_reset_round_flags(&game);
+                //宣布阶段结束后进入发言阶段，按玩家顺序提示发言
+                start_statement_phase(clients, &game);
+            }
+            else if (game.phase == PHASE_STATEMENT) {
+                if (!game.players[idx].alive) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s You are dead and cannot speak\n", MSG_ERROR);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                if (idx != game.statement_turn) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_NOT_YOUR_TURN);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                if (strcmp(cmd, CMD_SAY) != 0) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_INVALID_COMMAND);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                if (strlen(arg) == 0 || strlen(arg) > MAX_STATEMENT_LEN) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_INVALID_COMMAND);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                char statement_msg[MAX_LINE_LEN * 2];
+                snprintf(statement_msg, sizeof(statement_msg), "%s %s: %s\n",
+                        MSG_STATEMENT, game.players[idx].name, arg);
+                broadcast(clients, statement_msg);
+
+                game.players[idx].has_spoken = true;
+
+                int next_idx = find_next_speaker(&game);
+                game.statement_turn = next_idx;
+
+                if (next_idx == -1) {
+                    broadcast(clients, MSG_STATEMENT_PHASE_END "\n");
+                    game.phase = PHASE_VOTING;
+                } else {
+                    prompt_statement_turn(clients, &game, next_idx);
+                }
+            }
+             else {
                 char msg[MAX_LINE_LEN];
                 snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_NOT_IMPLEMENTED);
                 write(i, msg, strlen(msg));
