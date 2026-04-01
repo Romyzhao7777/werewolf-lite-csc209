@@ -58,6 +58,16 @@ void broadcast(Client clients[], const char *msg) {
     }
 }
 
+void broadcast_player_list(Client clients[], GameState *game) {
+    char names_buf[MAX_LINE_LEN];
+
+    if (game_format_alive_players(game, names_buf, sizeof(names_buf)) >= 0) {
+        char msg[MAX_LINE_LEN * 2];
+        snprintf(msg, sizeof(msg), "%s %s\n", MSG_ALIVE_PLAYERS, names_buf);
+        broadcast(clients, msg);
+    }
+}
+
 void send_roles_from_game(Client clients[], GameState *game) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].active && clients[i].has_name) {
@@ -469,7 +479,15 @@ int main() {
 
             //如果已注册玩家数量达到MAX_PLAYERS，广播游戏开始消息，分配角色并发送角色信息
             if (named_count == MAX_PLAYERS) {
+                // 开局前先把所有玩家同步成 alive，便于格式化名单
+                for (int p = 0; p < MAX_PLAYERS; p++) {
+                    if (game.players[p].slot_used && game.players[p].has_name) {
+                        game.players[p].alive = true;
+                    }
+                }
+
                 broadcast(clients, MSG_GAME_START "\n");
+                broadcast_player_list(clients, &game);
 
                 game_assign_roles(&game);
                 game.phase = PHASE_NIGHT;
