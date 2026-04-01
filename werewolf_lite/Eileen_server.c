@@ -100,6 +100,29 @@ void start_night_phase(Client clients[], GameState *game) {
     }
 }
 
+void start_day_announce_phase(Client clients[], GameState *game) {
+    broadcast(clients, MSG_DAY_START "\n");
+
+    if (game->night_victim_slot >= 0 &&
+        game->night_victim_slot < MAX_PLAYERS &&
+        game->players[game->night_victim_slot].slot_used) {
+
+        char elim_msg[MAX_LINE_LEN];
+        snprintf(elim_msg, sizeof(elim_msg), "%s %s\n",
+                 MSG_PLAYER_ELIMINATED,
+                 game->players[game->night_victim_slot].name);
+        broadcast(clients, elim_msg);
+    }
+
+    char alive_buf[MAX_LINE_LEN];
+    if (game_format_alive_players(game, alive_buf, sizeof(alive_buf)) >= 0) {
+        char alive_msg[MAX_LINE_LEN * 2];
+        snprintf(alive_msg, sizeof(alive_msg), "%s %s\n",
+                 MSG_ALIVE_PLAYERS, alive_buf);
+        broadcast(clients, alive_msg);
+    }
+}
+
 int main() {
     //初始化随机数生成器
     srand((unsigned int)getpid());
@@ -384,6 +407,11 @@ int main() {
 
                 printf("Werewolf selected victim: %s (slot=%d)\n",
                     game.players[victim_idx].name, victim_idx);
+
+                //夜里杀人后直接进入白天宣布阶段，宣布死者和存活玩家
+                game.players[victim_idx].alive = false;
+                game.phase = PHASE_DAY_ANNOUNCE;
+                start_day_announce_phase(clients, &game);
             } else {
                 char msg[MAX_LINE_LEN];
                 snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_NOT_IMPLEMENTED);
