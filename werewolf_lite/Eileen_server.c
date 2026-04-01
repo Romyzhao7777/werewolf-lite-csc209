@@ -3,7 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-
+#include <sys/select.h>
 
 #define PORT 4242
 
@@ -37,40 +37,63 @@ int main() {
 
     printf("Server listening on port %d...\n", PORT);
 
-    char buffer[512];
+    fd_set master_set, read_fds;
+    int max_fd;
 
-    // 外层循环：不断接受新 client
+    // 初始化
+    FD_ZERO(&master_set);
+    FD_SET(server_fd, &master_set);
+    max_fd = server_fd;
+
+
     while (1) {
+    read_fds = master_set;  // 拷贝
 
-        // 5. accept 一个 client
-        int client_fd = accept(server_fd, NULL, NULL);
-        if (client_fd < 0) {
-            perror("accept");
-            continue;
-        }
-
-        printf("Client connected!\n");
-
-        // 6. 发送 WELCOME
-        char *msg = "WELCOME\n";
-        write(client_fd, msg, strlen(msg));
-
-        // 内层循环：处理这个 client
-        while (1) {
-            int n = read(client_fd, buffer, sizeof(buffer) - 1);
-
-            if (n <= 0) {
-                printf("Client disconnected\n");
-                close(client_fd);
-                break;  // 只跳出内层循环
-            }
-
-            buffer[n] = '\0';
-            printf("Received: %s", buffer);
-        }
+    if (select(max_fd + 1, &read_fds, NULL, NULL, NULL) < 0) {
+        perror("select");
+        exit(1);
     }
 
-    close(client_fd);
-    close(server_fd);
+    // 遍历所有 fd，处理新加入的以及有新传输内容的client
+    for (int i = 0; i <= max_fd; i++) {
+        if (FD_ISSET(i, &read_fds)) {
+
+            // 🟢 新连接
+            if (i == server_fd) {
+                client_fd = accept(server_fd, NULL, NULL);
+                if (client_fd < 0) {
+                    perror("accept");
+                    continue;
+                }
+                printf("New client connected!\n");
+
+                FD_SET(client_fd, &master_set);
+                if (client_fd > max_fd) max_fd = client_fd;
+
+                // 发 WELCOME
+                char *msg = "WELCOME\n";
+                write(client_fd, msg, strlen(msg));
+            }
+
+            // 🔵 已有 client 发消息
+            else {
+                char buffer[512];
+                int n = read(i, buffer, sizeof(buffer) - 1);
+
+                if (n <= 0) {
+                    printf("Client disconnected\n");
+                    close(i);
+                    FD_CLR(i, &master_set);
+                } else {
+                    buffer[n] = '\0';
+                    printf("Received from %d: %s", i, buffer);
+                }
+            }
+        }
+    }
+}
+
+    //close(client_fd);
+    //close(server_fd);
     return 0;
 }
