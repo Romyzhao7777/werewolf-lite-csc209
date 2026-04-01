@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include "protocol.h"
+#include "game.h"
 
 //注意最后改成protocal的
 #define PORT DEFAULT_PORT
@@ -16,7 +17,6 @@ typedef struct {
     int active;
     int has_name;
     char name[MAX_NAME_LEN];
-    int role;   // 0 = villager, 1 = werewolf
 } Client;
 
 
@@ -58,39 +58,30 @@ void broadcast(Client clients[], const char *msg) {
     }
 }
 
-void assign_roles(Client clients[]) {
-    int werewolf_index = rand() % MAX_PLAYERS;
-
-    int named_seen = 0;
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i].active && clients[i].has_name) {
-            if (named_seen == werewolf_index) {
-                clients[i].role = 1; // werewolf
-            } else {
-                clients[i].role = 0; // villager
-            }
-            named_seen++;
-        }
-    }
-}
-
-void send_roles(Client clients[]) {
+void send_roles_from_game(Client clients[], GameState *game) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].active && clients[i].has_name) {
             char msg[MAX_LINE_LEN];
-            if (clients[i].role == 1) {
+            if (game->players[i].role == ROLE_WEREWOLF) {
                 snprintf(msg, sizeof(msg), "%s %s\n", MSG_ROLE, ROLE_STR_WEREWOLF);
-            } else {
+            } else if (game->players[i].role == ROLE_VILLAGER) {
                 snprintf(msg, sizeof(msg), "%s %s\n", MSG_ROLE, ROLE_STR_VILLAGER);
+            } else {
+                continue;
             }
             write(clients[i].fd, msg, strlen(msg));
         }
     }
 }
 
+
 int main() {
     //初始化随机数生成器
     srand((unsigned int)getpid());
+
+    //初始化游戏状态
+    GameState game;
+    game_init(&game);
 
     //定义client结构体数组，存储客户端信息
     Client clients[MAX_CLIENTS];
@@ -139,7 +130,6 @@ int main() {
         clients[i].active = 0;
         clients[i].has_name = 0;
         clients[i].name[0] = '\0';
-        clients[i].role = 0;
     }
 
 
@@ -195,7 +185,8 @@ int main() {
                 FD_SET(client_fd, &master_set);
                 if (client_fd > max_fd) max_fd = client_fd;
 
-                char *msg = "WELCOME\n";
+                char msg[MAX_LINE_LEN];
+                snprintf(msg, sizeof(msg), "%s\n", MSG_WELCOME);
                 write(client_fd, msg, strlen(msg));
             }
             // 🔵 已有 client 发消息
@@ -209,14 +200,54 @@ int main() {
         close(i);
         FD_CLR(i, &master_set);
 
+        char disconnected_name[MAX_NAME_LEN] = "";
+        int disconnected_idx = -1;
+
         for (int j = 0; j < MAX_CLIENTS; j++) {
             if (clients[j].active && clients[j].fd == i) {
+                disconnected_idx = j;
+                if (clients[j].has_name) {
+                    strcpy(disconnected_name, clients[j].name);
+                }
                 clients[j].active = 0;
                 clients[j].fd = -1;
                 clients[j].has_name = 0;
                 clients[j].name[0] = '\0';
-                clients[j].role = 0;
+
+                game.players[j].fd = -1;
+                game.players[j].name[0] = '\0';
+                game.players[j].role = ROLE_NONE;
+                game.players[j].slot_used = false;
+                game.players[j].has_name = false;
+                game.players[j].alive = false;
+                game.players[j].has_spoken = false;
+                game.players[j].has_voted = false;
+                game.players[j].vote_target[0] = '\0';
                 break;
+            }
+        }
+
+        if (disconnected_idx != -1 && game.phase != PHASE_LOBBY) {
+            char msg[MAX_LINE_LEN];
+
+            if (disconnected_name[0] != '\0') {
+                snprintf(msg, sizeof(msg), "%s %s\n", MSG_PLAYER_DISCONNECTED, disconnected_name);
+                broadcast(clients, msg);
+            }
+
+            broadcast(clients, MSG_GAME_ABORTED "\n");
+
+            game_init(&game);
+
+            for (int k = 0; k < MAX_CLIENTS; k++) {
+                if (clients[k].active) {
+                    clients[k].has_name = 0;
+                    clients[k].name[0] = '\0';
+
+                    char welcome_msg[MAX_LINE_LEN];
+                    snprintf(welcome_msg, sizeof(welcome_msg), "%s\n", MSG_WELCOME);
+                    write(clients[k].fd, welcome_msg, strlen(welcome_msg));
+                }
             }
         }
     } else {
@@ -262,6 +293,12 @@ int main() {
             strcpy(clients[idx].name, arg);
             clients[idx].has_name = 1;
 
+            //将用户名同步给game
+            game.players[idx].slot_used = true;
+            game.players[idx].has_name = true;
+            strcpy(game.players[idx].name, arg);
+            game.players[idx].fd = i;
+
             printf("Registered player: %s (fd=%d)\n", clients[idx].name, i);
 
             //计算当前已注册玩家数量，并广播等待消息
@@ -271,8 +308,9 @@ int main() {
             if (named_count == MAX_PLAYERS) {
                 broadcast(clients, MSG_GAME_START "\n");
 
-                assign_roles(clients);
-                send_roles(clients);
+                game_assign_roles(&game);
+                game.phase = PHASE_NIGHT;
+                send_roles_from_game(clients, &game);
             }
 
             else{
