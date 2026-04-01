@@ -168,6 +168,42 @@ void start_statement_phase(Client clients[], GameState *game) {
     prompt_statement_turn(clients, game, speaker_idx);
 }
 
+void start_voting_phase(Client clients[], GameState *game) {
+    game->phase = PHASE_VOTING;
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+
+        if (!clients[i].active || !clients[i].has_name)
+            continue;
+
+        char msg[MAX_LINE_LEN];
+
+        if (game->players[i].alive) {
+            // 活人可以投票
+            snprintf(msg, sizeof(msg), "%s\n", MSG_VOTE_PROMPT);
+        }
+        else {
+            // 死人只能等待
+            snprintf(msg, sizeof(msg), "%s Players are voting\n", MSG_WAIT_VOTE);
+        }
+
+        write(clients[i].fd, msg, strlen(msg));
+    }
+}
+
+int all_alive_players_voted(GameState *game) {
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (game->players[i].slot_used &&
+            game->players[i].has_name &&
+            game->players[i].alive) {
+            if (!game->players[i].has_voted) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
 int main() {
     //初始化随机数生成器
     srand((unsigned int)getpid());
@@ -504,9 +540,84 @@ int main() {
 
                 if (next_idx == -1) {
                     broadcast(clients, MSG_STATEMENT_PHASE_END "\n");
-                    game.phase = PHASE_VOTING;
+                    start_voting_phase(clients, &game);
                 } else {
                     prompt_statement_turn(clients, &game, next_idx);
+                }
+            }
+            else if (game.phase == PHASE_VOTING) {
+                if (!game.players[idx].alive) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s You are dead and cannot vote\n", MSG_ERROR);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                if (strcmp(cmd, CMD_VOTE) != 0) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_INVALID_COMMAND);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                if (!game_valid_vote_target(&game, idx, arg)) {
+                    char msg[MAX_LINE_LEN];
+                    if (game.players[idx].has_voted) {
+                        snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_ALREADY_VOTED);
+                    } else {
+                        snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_INVALID_VOTE_TARGET);
+                    }
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                strcpy(game.players[idx].vote_target, arg);
+                game.players[idx].has_voted = true;
+
+                printf("%s voted for %s\n", game.players[idx].name, arg);
+
+                if (all_alive_players_voted(&game)) {
+                    int elim_slot = -1;
+                    game_tally_votes(&game, &elim_slot);
+
+                    if (elim_slot == -1) {
+                        // tie: 重新发言再投票
+                        broadcast(clients, MSG_VOTE_TIE "\n");
+
+                        game_reset_round_flags(&game);
+                        start_statement_phase(clients, &game);
+                    }
+                    else {
+                        game.players[elim_slot].alive = false;
+
+                        char vote_msg[MAX_LINE_LEN];
+                        snprintf(vote_msg, sizeof(vote_msg), "%s %s\n",
+                                MSG_VOTE_RESULT, game.players[elim_slot].name);
+                        broadcast(clients, vote_msg);
+
+                        if (game_villagers_win(&game)) {
+                            char win_msg[MAX_LINE_LEN];
+                            snprintf(win_msg, sizeof(win_msg), "%s %s\n",
+                                    MSG_GAME_OVER, WIN_STR_VILLAGERS);
+                            broadcast(clients, win_msg);
+                            game.phase = PHASE_GAME_OVER;
+                        }
+                        else if (game_werewolf_win(&game)) {
+                            char win_msg[MAX_LINE_LEN];
+                            snprintf(win_msg, sizeof(win_msg), "%s %s\n",
+                                    MSG_GAME_OVER, WIN_STR_WEREWOLF);
+                            broadcast(clients, win_msg);
+                            game.phase = PHASE_GAME_OVER;
+                        }
+                        else {
+                            // 你现在的简化版理论上不会走到这里
+                            // 但留着更稳
+                            char msg[MAX_LINE_LEN];
+                            snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_NOT_IMPLEMENTED);
+                            broadcast(clients, msg);
+                            game.phase = PHASE_GAME_OVER;
+                        }
+                    }
                 }
             }
              else {

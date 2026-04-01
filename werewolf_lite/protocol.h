@@ -89,6 +89,7 @@
 #define MSG_ERROR "ERROR"
 #define MSG_PLAYER_DISCONNECTED "PLAYER_DISCONNECTED"
 #define MSG_GAME_ABORTED "GAME_ABORTED"
+#define MSG_WAIT_VOTE "WAIT_VOTE"
 
 /*
  * --- Client -> server (first token; one command per line) ---
