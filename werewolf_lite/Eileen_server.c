@@ -74,6 +74,31 @@ void send_roles_from_game(Client clients[], GameState *game) {
     }
 }
 
+void send_to_fd(int fd, const char *msg) {
+    write(fd, msg, strlen(msg));
+}
+
+void start_night_phase(Client clients[], GameState *game) {
+    broadcast(clients, MSG_NIGHT_START "\n");
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (!clients[i].active || !clients[i].has_name) {
+            continue;
+        }
+
+        char msg[MAX_LINE_LEN];
+
+        if (game->players[i].role == ROLE_WEREWOLF) {
+            snprintf(msg, sizeof(msg), "%s\n", MSG_NIGHT_ACTION);
+        } else if (game->players[i].role == ROLE_VILLAGER) {
+            snprintf(msg, sizeof(msg), "%s\n", MSG_NIGHT_WAIT);
+        } else {
+            continue;
+        }
+
+        send_to_fd(clients[i].fd, msg);
+    }
+}
 
 int main() {
     //初始化随机数生成器
@@ -264,8 +289,10 @@ int main() {
         //把用户输入变成命令和参数，cmd是命令，arg是参数
         char cmd[MAX_LINE_LEN] = {0};
         char arg[MAX_LINE_LEN] = {0};
-        sscanf(buffer, "%s %[^\n]", cmd, arg);
-
+        int parts = sscanf(buffer, "%s %[^\n]", cmd, arg);
+        if (parts < 2) {
+            arg[0] = '\0';
+        }
         //如果用户没注册名字
         if (!clients[idx].has_name) {
             //如果命令不是NAME
@@ -311,6 +338,7 @@ int main() {
                 game_assign_roles(&game);
                 game.phase = PHASE_NIGHT;
                 send_roles_from_game(clients, &game);
+                start_night_phase(clients, &game);
             }
 
             else{
@@ -320,11 +348,47 @@ int main() {
                 broadcast(clients, waiting_msg);
             }
         } 
-        //如果用户已经注册名字，但重复注册
+        //用户已有name，处理游戏内命令，以及无效命令
         else {
-            char msg[MAX_LINE_LEN];
-            snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_NOT_IMPLEMENTED);
-            write(i, msg, strlen(msg));
+            if (game.phase == PHASE_NIGHT) {
+                if (strcmp(cmd, CMD_KILL) != 0) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_INVALID_COMMAND);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                if (game.players[idx].role != ROLE_WEREWOLF) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_INVALID_COMMAND);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                if (!game_valid_night_target(&game, idx, arg)) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_INVALID_KILL_TARGET);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                int victim_idx = game_find_player_by_name(&game, arg);
+                if (victim_idx < 0) {
+                    char msg[MAX_LINE_LEN];
+                    snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_INVALID_KILL_TARGET);
+                    write(i, msg, strlen(msg));
+                    continue;
+                }
+
+                game.night_victim_slot = victim_idx;
+
+                printf("Werewolf selected victim: %s (slot=%d)\n",
+                    game.players[victim_idx].name, victim_idx);
+            } else {
+                char msg[MAX_LINE_LEN];
+                snprintf(msg, sizeof(msg), "%s %s\n", MSG_ERROR, ERR_NOT_IMPLEMENTED);
+                write(i, msg, strlen(msg));
+            }
         }
     }
 }
