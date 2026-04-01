@@ -383,9 +383,22 @@ static void handle_server_line(const char *line) {
 /* -------------------------------------------------------------------------
  * main — no arguments needed; always connects to localhost:DEFAULT_PORT.
  * ---------------------------------------------------------------------- */
-int main() {
-    const char *host = "localhost";
+int main(int argc, char *argv[]) {
+    if (argc < 2 || argc > 3) {
+        fprintf(stderr, "Usage: %s <host> [port]\n", argv[0]);
+        exit(1);
+    }
+
+    const char *host = argv[1];
     int port = DEFAULT_PORT;
+
+    if (argc == 3) {
+        port = atoi(argv[2]);
+        if (port <= 0 || port > 65535) {
+            fprintf(stderr, "Invalid port: %s\n", argv[2]);
+            exit(1);
+        }
+    }
 
     /* ------------------------------------------------------------------
      * Step 1: Create socket  (lecture Image 2 style)
@@ -400,27 +413,26 @@ int main() {
      * Step 2: Resolve host with getaddrinfo(), fill sockaddr_in
      *         (lecture Image 1 style)
      * ------------------------------------------------------------------ */
-    struct sockaddr_in server;
-    server.sin_family = AF_INET;
-    memset(&server.sin_zero, 0, 8);
-    server.sin_port = htons(port);
+    struct addrinfo hints, *result;
 
-    struct addrinfo *result;
-    if (getaddrinfo(host, NULL, NULL, &result) != 0) {
-        fprintf(stderr, "getaddrinfo: could not resolve %s\n", host);
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+
+    if (getaddrinfo(host, port_str, &hints, &result) != 0) {
+        fprintf(stderr, "getaddrinfo failed\n");
         exit(1);
     }
-    server.sin_addr = ((struct sockaddr_in *) result->ai_addr)->sin_addr;
-    freeaddrinfo(result);
 
-    /* ------------------------------------------------------------------
-     * Step 3: Connect  (lecture Image 2 style)
-     * ------------------------------------------------------------------ */
-    if (connect(soc, (struct sockaddr *)&server,
-                sizeof(struct sockaddr_in)) == -1) {
+    if (connect(soc, result->ai_addr, result->ai_addrlen) == -1) {
         perror("connect");
         exit(1);
     }
+
+    freeaddrinfo(result);
 
     printf("Connected to %s:%d\n", host, port);
 
