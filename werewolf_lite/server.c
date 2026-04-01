@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #define RECV_BUF_SIZE 4096
@@ -211,6 +212,7 @@ int main(int argc, char **argv) {
     }
 
     game_init(&g_state);
+    srand((unsigned)time(NULL)); /* once per process for game_assign_roles / 进程内只播一次种 */
     for (int i = 0; i < MAX_PLAYERS; i++) {
         g_recv[i].len = 0;
     }
