@@ -410,7 +410,7 @@ int main() {
                 }
             }
         }
-}
+
     } else {
         buffer[n] = '\0';
         buffer[strcspn(buffer, "\r\n")] = '\0';
