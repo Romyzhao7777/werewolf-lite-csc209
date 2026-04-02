@@ -1,16 +1,3 @@
-/*
- * client.c — Werewolf Lite client (CSC209 A3, Category 2)
- *
- * Usage: ./client <host> [port]
- *
- * Carefully matched against server.c:
- *   - MSG_GAME_OVER and MSG_GAME_ABORTED both trigger reset_to_lobby() on
- *     the server, so the client must return to STATE_LOBBY (not exit).
- *   - MSG_WAIT_VOTE is sent by start_voting_phase() to dead players.
- *   - MSG_WELCOME is re-sent after every game end; client resets state on it.
- *   - MSG_NIGHT_ACTION / MSG_NIGHT_WAIT are sent as full verbatim strings.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,20 +12,12 @@
 
 #include "protocol.h"
 
-/*
- * MSG_WAIT_VOTE is used in server.c's start_voting_phase() for dead players:
- *   snprintf(msg, ..., "%s Players are voting\n", MSG_WAIT_VOTE);
- * but it is NOT defined in protocol.h, so we define it here.
- */
 #ifndef MSG_WAIT_VOTE
 #define MSG_WAIT_VOTE "WAIT_VOTE"
 #endif
 
 /* -------------------------------------------------------------------------
  * Line-oriented read buffer
- *
- * TCP is a byte stream: one read() may return half a line or several lines.
- * We keep one LineBuf per fd and extract '\n'-terminated lines one at a time.
  * ---------------------------------------------------------------------- */
 #define BUF_SIZE 4096
 
@@ -75,14 +54,8 @@ static int buf_next_line(LineBuf *buf, char *out, int out_size) {
     return 1;
 }
 
-/* -------------------------------------------------------------------------
- * Client state — tracks what phase we are in for display/prompt purposes.
- *
- * KEY INSIGHT from server.c:
- *   After GAME_OVER or GAME_ABORTED, the server calls reset_to_lobby() which
- *   re-sends WELCOME to every still-connected client.  So we must NOT exit on
- *   GAME_OVER/GAME_ABORTED — instead we go back to STATE_LOBBY and wait for
- *   the WELCOME that follows immediately.
+/* ----------------------------------------------------------------------
+ * Client State
  * ---------------------------------------------------------------------- */
 typedef enum {
     STATE_LOBBY,           /* waiting for GAME_START; NAME expected  */
@@ -97,20 +70,12 @@ typedef enum {
 
 static ClientState g_state = STATE_LOBBY;
 
-/* -------------------------------------------------------------------------
- * handle_server_line: parse one complete server line and react.
- *
- * Every message the server can send is handled here.  The order of the
- * if-else chain matters when one keyword is a prefix of another — longest
- * match first (e.g. NIGHT_ACTION before NIGHT_, WAIT_STATEMENT before WAIT_).
- * ---------------------------------------------------------------------- */
+
 static void handle_server_line(const char *line) {
 
     /*
      * STARTS(kw): true if line begins with exactly the keyword kw,
      * followed by end-of-string or a space.
-     * This is safe even when kw contains spaces (MSG_NIGHT_ACTION,
-     * MSG_NIGHT_WAIT) because strncmp checks the entire kw string.
      */
 #define STARTS(kw) (strncmp(line, (kw), strlen(kw)) == 0 && \
                     (line[strlen(kw)] == '\0' || line[strlen(kw)] == ' '))
@@ -164,17 +129,8 @@ static void handle_server_line(const char *line) {
      * NIGHT_START
      * Sent: broadcast to all at the start of night.
      * Followed by NIGHT_ACTION (wolf only) or NIGHT_WAIT (villagers).
-     *
-     * NOTE: check NIGHT_ACTION and NIGHT_WAIT before NIGHT_START because
-     * all three start with "NIGHT" — longest-specific match wins.
      * ================================================================== */
     } else if (STARTS(MSG_NIGHT_ACTION)) {
-        /*
-         * server.c sends exactly:
-         *   snprintf(msg, sizeof(msg), "%s\n", MSG_NIGHT_ACTION);
-         * where MSG_NIGHT_ACTION = "NIGHT_ACTION Choose a player to eliminate"
-         * So the whole line IS the keyword string. STARTS() still matches.
-         */
         g_state = STATE_NIGHT_WOLF;
         printf("\n--- NIGHT FALLS ---\n");
         printf("[Night] Choose a player to eliminate.\n");
@@ -182,11 +138,6 @@ static void handle_server_line(const char *line) {
         fflush(stdout);
 
     } else if (STARTS(MSG_NIGHT_WAIT)) {
-        /*
-         * server.c sends exactly:
-         *   snprintf(msg, sizeof(msg), "%s\n", MSG_NIGHT_WAIT);
-         * where MSG_NIGHT_WAIT = "NIGHT_WAIT Waiting for the werewolf"
-         */
         g_state = STATE_NIGHT_WAIT;
         printf("\n--- NIGHT FALLS ---\n");
         printf("[Night] Waiting for the werewolf...\n");
@@ -268,9 +219,7 @@ static void handle_server_line(const char *line) {
 
     /* ==================================================================
      * WAIT_VOTE Players are voting
-     * Sent: in start_voting_phase() to DEAD players (not in protocol.h!).
-     * server.c line: snprintf(msg,...,"%s Players are voting\n",MSG_WAIT_VOTE)
-     * We defined MSG_WAIT_VOTE above since it's missing from protocol.h.
+     * Sent: in start_voting_phase() to DEAD players
      * ================================================================== */
     } else if (STARTS(MSG_WAIT_VOTE)) {
         g_state = STATE_VOTE_WAIT;
@@ -289,8 +238,6 @@ static void handle_server_line(const char *line) {
     /* ==================================================================
      * VOTE_TIE
      * Sent: broadcast when votes are tied.
-     * server.c then calls start_statement_phase() again — so we will
-     * receive YOUR_STATEMENT or WAIT_STATEMENT next, which update state.
      * ================================================================== */
     } else if (STARTS(MSG_VOTE_TIE)) {
         g_state = STATE_DAY;
@@ -309,10 +256,6 @@ static void handle_server_line(const char *line) {
      * GAME_OVER VILLAGERS_WIN | GAME_OVER WEREWOLF_WIN
      * Sent: broadcast, then server IMMEDIATELY calls reset_to_lobby()
      * which sends WELCOME to all remaining clients.
-     *
-     * CRITICAL: do NOT set STATE_DONE here — the server will send
-     * WELCOME right after, and we must be alive to receive it and
-     * re-enter the lobby for the next game.
      * ================================================================== */
     } else if (STARTS(MSG_GAME_OVER)) {
         const char *result = ARG(MSG_GAME_OVER);
@@ -326,7 +269,6 @@ static void handle_server_line(const char *line) {
         }
         printf("[Game] Returning to lobby...\n");
         fflush(stdout);
-        /* State will be reset to STATE_LOBBY when WELCOME arrives next. */
 
     /* ==================================================================
      * PLAYER_DISCONNECTED <name>
@@ -347,7 +289,6 @@ static void handle_server_line(const char *line) {
         printf("[Game] Game aborted due to disconnection.\n");
         printf("[Game] Returning to lobby...\n");
         fflush(stdout);
-        /* State will be reset to STATE_LOBBY when WELCOME arrives next. */
 
     /* ==================================================================
      * ERROR <reason>
@@ -356,7 +297,6 @@ static void handle_server_line(const char *line) {
      * ================================================================== */
     } else if (STARTS(MSG_ERROR)) {
         printf("[Error] %s\n", ARG(MSG_ERROR));
-        /* Re-show the appropriate prompt for the current state */
         if (g_state == STATE_LOBBY) {
             printf("> ");
         } else if (g_state == STATE_NIGHT_WOLF) {
@@ -380,9 +320,7 @@ static void handle_server_line(const char *line) {
 #undef ARG
 }
 
-/* -------------------------------------------------------------------------
- * main — no arguments needed; always connects to localhost:DEFAULT_PORT.
- * ---------------------------------------------------------------------- */
+
 int main(int argc, char *argv[]) {
     if (argc < 2 || argc > 3) {
         fprintf(stderr, "Usage: %s <host> [port]\n", argv[0]);
@@ -400,19 +338,13 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* ------------------------------------------------------------------
-     * Step 1: Create socket  (lecture Image 2 style)
-     * ------------------------------------------------------------------ */
+    // Step 1: Create socket
     int soc = socket(AF_INET, SOCK_STREAM, 0);
     if (soc == -1) {
         perror("socket");
         exit(1);
     }
 
-    /* ------------------------------------------------------------------
-     * Step 2: Resolve host with getaddrinfo(), fill sockaddr_in
-     *         (lecture Image 1 style)
-     * ------------------------------------------------------------------ */
     struct addrinfo hints, *result;
 
     memset(&hints, 0, sizeof(hints));
@@ -427,6 +359,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    // Step 2: Connect
     if (connect(soc, result->ai_addr, result->ai_addrlen) == -1) {
         perror("connect");
         exit(1);
@@ -436,33 +369,21 @@ int main(int argc, char *argv[]) {
 
     printf("Connected to %s:%d\n", host, port);
 
-    /* ------------------------------------------------------------------
-     * Step 4: select() event loop  (lecture Image 3 style)
-     *
-     * Two fds:
-     *   soc          — server messages, newline-delimited
-     *   STDIN_FILENO — keyboard input from the player
-     *
-     * We run forever (until the server closes the socket) because
-     * the server can reset the game and send WELCOME again after
-     * GAME_OVER or GAME_ABORTED.
-     * ------------------------------------------------------------------ */
+    // Step 3: Select
     LineBuf sock_buf, stdin_buf;
     memset(&sock_buf,  0, sizeof(sock_buf));
     memset(&stdin_buf, 0, sizeof(stdin_buf));
 
-    char tmp[BUF_SIZE];        /* raw bytes from read()         */
-    char line[MAX_LINE_LEN];   /* one extracted protocol line   */
+    char tmp[BUF_SIZE];        
+    char line[MAX_LINE_LEN];   
 
-    while (1) {   /* loop forever; exit only when server closes connection */
+    while (1) {   // exit only when server closes connection
 
-        /* Build the fd_set — Image 3 style */
         fd_set read_fds;
         FD_ZERO(&read_fds);
         FD_SET(soc,          &read_fds);
         FD_SET(STDIN_FILENO, &read_fds);
 
-        /* numfd = highest fd + 1 — Image 3 style */
         int numfd;
         if (soc > STDIN_FILENO) {
             numfd = soc + 1;
@@ -475,14 +396,13 @@ int main(int argc, char *argv[]) {
             break;
         }
 
-        /* ---- Data from server ---------------------------------------- */
+        // data from server
         if (FD_ISSET(soc, &read_fds)) {
             int r = read(soc, tmp, sizeof(tmp) - 1);
             if (r < 0) {
                 perror("read");
                 break;
             } else if (r == 0) {
-                /* Server closed the connection — truly done */
                 printf("[Connection] Server disconnected.\n");
                 break;
             } else {
@@ -490,21 +410,19 @@ int main(int argc, char *argv[]) {
                     fprintf(stderr, "[Error] Server line too long, resetting buffer.\n");
                     sock_buf.len = 0;
                 }
-                /* Drain all complete lines */
                 while (buf_next_line(&sock_buf, line, sizeof(line))) {
                     handle_server_line(line);
                 }
             }
         }
 
-        /* ---- Input from stdin ---------------------------------------- */
+        // input from stdin
         if (FD_ISSET(STDIN_FILENO, &read_fds)) {
             int r = read(STDIN_FILENO, tmp, sizeof(tmp) - 1);
             if (r < 0) {
                 perror("read");
                 break;
             } else if (r == 0) {
-                /* EOF (Ctrl-D) — send QUIT and exit */
                 write(soc, CMD_QUIT "\n", strlen(CMD_QUIT) + 1);
                 break;
             } else {
@@ -512,10 +430,9 @@ int main(int argc, char *argv[]) {
                     fprintf(stderr, "[Error] Input line too long, discarding.\n");
                     stdin_buf.len = 0;
                 }
-                /* Forward each complete stdin line to the server */
                 while (buf_next_line(&stdin_buf, line, sizeof(line))) {
-                    if (line[0] == '\0') continue;  /* skip blank lines */
-                    
+                    if (line[0] == '\0') continue;  // skip blank line
+
                     if (strcmp(line, "exit") == 0) {
                         printf("[Game] You have left the game.\n");
                         close(soc);
